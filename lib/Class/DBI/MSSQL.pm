@@ -1,5 +1,5 @@
 package Class::DBI::MSSQL;
-our $VERSION = '0.01_01';
+our $VERSION = '0.10';
 
 use strict;
 use warnings;
@@ -12,9 +12,9 @@ Class::DBI::MSSQL - Class::DBI for MSSQL
 
 =head1 VERSION
 
-version 0.01_01
+version 0.10
 
- $Id: MSSQL.pm,v 1.5 2004/09/07 16:39:45 rsignes Exp $
+ $Id: MSSQL.pm,v 1.7 2004/09/22 11:35:38 rsignes Exp $
 
 =head1 SYNOPSIS
 
@@ -36,6 +36,8 @@ Here are the things it changes:
 =item * use C<INSERT INTO table DEFAULT VALUES> for C<create({})>
 
 =back
+
+It also implements some metadata methods, described below.
 
 =cut
 
@@ -76,6 +78,65 @@ sub _insert_row {
 
 __PACKAGE__->set_sql(MakeNewEmptyObj => 'INSERT INTO __TABLE__ DEFAULT VALUES');
 
+=head1 METHODS
+
+=head2 C<< set_up_table($table_name) >>
+
+This method sets up the columns from the named table by querying MSSQL's
+C<information_schema> metadata tables.  It will set up the key(s) as Primary
+and all other columns as Essential.
+
+=cut
+
+__PACKAGE__->set_sql(desc_table => <<SQL);
+	SELECT col.table_name, col.column_name, col.data_type, ccu.constraint_name
+	FROM information_schema.columns col
+	LEFT JOIN information_schema.constraint_column_usage ccu
+	       ON col.table_catalog = ccu.table_catalog 
+	      AND col.table_schema = ccu.table_schema 
+	      AND col.table_name = ccu.table_name
+	      AND col.column_name = ccu.column_name
+	WHERE (col.table_name = '__TABLE__')
+SQL
+
+sub set_up_table {
+	my $class = shift;
+	$class->table(shift || $class->table);
+	(my $sth = $class->sql_desc_table)->execute;
+	my (@cols, @pri);
+	while (my $hash = $sth->fetch_hash) {
+		my ($col) = $hash->{column_name} =~ /(\w+)/;
+		if($hash->{constraint_name} =~ /^PK_/) {
+			push @pri, $col;
+		} else {
+			push @cols, $col;
+		}
+	}
+	$class->_croak($class->table, " has no primary key") unless @pri;
+	$class->columns(Primary => @pri);
+	$class->columns(Essential => @cols);
+}
+
+=head2 C<< column_type($column_name) >>
+
+This returns the named column's datatype.
+
+=cut
+
+sub _column_info {
+	my $self = shift;
+	my $dbh  = $self->db_Main;
+	
+	(my $sth = $self->sql_desc_table)->execute;
+	return { map { $_->{column_name} => $_ } $sth->fetchall_hash };
+}
+
+sub column_type {
+	my $class = shift;
+	my $col = shift or die "Need a column for column_type";
+	return $class->_column_info->{$col}->{data_type};
+}
+
 =head1 WARNINGS
 
 For one thing, there are no useful tests in this distribution.  I'll take care
@@ -99,6 +160,9 @@ Class::DBI release.
 
 =head1 THANKS
 
+...to James O'Sullivan, for graciously sending me his own solution to this
+problem, which I've happily included.
+
 ...to Michael Schwern and Tony Bowden for creating and maintaining,
 respectively, the excellent Class::DBI system.
 
@@ -108,6 +172,8 @@ finally convinced me to just use the darn thing.
 =head1 AUTHOR
 
 Ricardo SIGNES, <C<rjbs@cpan.org>>
+
+C<set_up_table> and C<column_type> from James O'Sullivan.
 
 =head1 COPYRIGHT
 
