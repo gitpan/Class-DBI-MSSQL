@@ -1,5 +1,5 @@
 package Class::DBI::MSSQL;
-our $VERSION = '0.10';
+our $VERSION = '0.12';
 
 use strict;
 use warnings;
@@ -12,9 +12,9 @@ Class::DBI::MSSQL - Class::DBI for MSSQL
 
 =head1 VERSION
 
-version 0.10
+version 0.12
 
- $Id: MSSQL.pm,v 1.7 2004/09/22 11:35:38 rsignes Exp $
+ $Id: MSSQL.pm,v 1.10 2004/11/01 12:48:34 rsignes Exp $
 
 =head1 SYNOPSIS
 
@@ -137,6 +137,37 @@ sub column_type {
 	return $class->_column_info->{$col}->{data_type};
 }
 
+=head2 C<< autoinflate($type => $class) >>
+
+This will automatically set up has_a() relationships for all columns of
+the specified type to the given class.  If the type is "dates" it will apply to
+both datetime and smalldatetime columns.  If the class is Time::Piece,
+Time::Piece::MSSQL will be required.
+
+We currently assume that all classess passed will be able to inflate
+and deflate without needing extra has_a arguments.
+
+=cut
+
+sub autoinflate {
+	my ($class, %how) = @_;
+	$how{$_} ||= $how{dates} for qw/datetime smalldatetime/;
+	my $info = $class->_column_info;
+	foreach my $col (keys %$info) {
+		(my $type = $info->{$col}->{type}) =~ s/\W.*//;
+		next unless $how{$type};
+		my %args;
+		if ($how{$type} eq "Time::Piece") {
+			eval "use Time::Piece::MSSQL";
+			$class->_croak($@) if $@;
+			$args{inflate} = "from_mssql_$type";
+			$args{deflate} = "mssql_$type";
+		}
+		$class->has_a($col => $how{$type}, %args);
+	}
+}
+
+
 =head1 WARNINGS
 
 For one thing, there are no useful tests in this distribution.  I'll take care
@@ -148,7 +179,9 @@ Class::DBI's C<_init> sub has a line that reads as follows:
 
  if (@primary_columns == grep defined, @{$data}{@primary_columns}) {     
 
-This will break MSSQL, and the line must be changed to:
+This will cause the primary key columns to autovivify as I<undef>, which will
+make inserts fail under MSSQL.  You should change that line to the following,
+which will fix the behavior.
 
  if (@$data{@primary_columns}
  	and @primary_columns == grep defined, @{$data}{@primary_columns}
