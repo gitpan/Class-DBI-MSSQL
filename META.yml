@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Class-DBI-MSSQL
-version:             0.121
+version:             0.122
 abstract:            Class::DBI for MSSQL
 license:             perl
 generated_by:        ExtUtils::MakeMaker version 6.31
